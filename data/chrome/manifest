@@ -1,0 +1,2 @@
+list	repo.sources	google-chrome.sources
+key	google-chrome.gpg	/usr/share/keyrings/google-chrome.gpg

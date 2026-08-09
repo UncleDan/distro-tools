@@ -1,0 +1,2 @@
+list	repo.list	claude-desktop.list
+key	claude-desktop-archive-keyring.asc	/usr/share/keyrings/claude-desktop-archive-keyring.asc
