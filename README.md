@@ -90,6 +90,11 @@ Both fingerprints are printed on a mismatch so you can see exactly what
 differs. Verification runs *before* anything is installed, so a bad key never
 reaches the system.
 
+**Check-only run** — leave every repository unticked and keep *Verify signing
+keys* ticked: the script audits the keys already installed and exits without
+touching anything. Useful on a machine that is already fully set up. It exits
+non-zero if any installed key fails the check.
+
 ## Where the keys are restored
 
 The export writes a `manifest` file recording the original absolute path of

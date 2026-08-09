@@ -579,6 +579,7 @@ run_import() {
 
     cl_run "Select what to install" || bye "Cancelled."
 
+    local bad_installed=0
     local vidx=$(( ${#CL_STATE[@]} - 1 ))
     local do_verify="${CL_STATE[$vidx]}"
 
@@ -607,13 +608,18 @@ run_import() {
         n=$((n+1))
     done
 
-    [ "${#todo[@]}" -eq 0 ] && bye "Nothing selected."
+    if [ "${#todo[@]}" -eq 0 ] && [ "$do_verify" != "1" ]; then
+        bye "Nothing selected."
+    fi
 
     # ---- key verification -------------------------------------------------
+    # Runs even with an empty selection: with nothing to install it becomes a
+    # plain audit of the keys this system already trusts.
     if [ "$do_verify" = "1" ]; then
         section "Verifying signing keys"
         FPR_CACHE="$(mktemp -d)"
-        local bad=0 bad_installed=0 unknown=0 rc sel
+        local bad=0 unknown=0 rc sel
+        bad_installed=0
         local -a kf=()
 
         # a) the keys about to be installed
@@ -645,18 +651,31 @@ run_import() {
         fi
         if [ "$bad_installed" = "1" ]; then
             printf '\n'
-            warn "A key already present on this system does not match its official"
-            detail "fingerprint. It is not one of the repositories being installed now,"
-            detail "but you should look into it before trusting that repository."
-            ask_yes_no "Continue with the installation anyway?" n || bye "Cancelled."
+            warn "A key already present on this system does not match the official"
+            detail "fingerprint. Look into that repository before trusting it."
+            if [ "${#todo[@]}" -gt 0 ]; then
+                detail "It is not one of the repositories being installed now."
+                ask_yes_no "Continue with the installation anyway?" n || bye "Cancelled."
+            fi
         fi
-        if [ "$unknown" = "1" ]; then
+        if [ "$unknown" = "1" ] && [ "${#todo[@]}" -gt 0 ]; then
             printf '\n'
             ask_yes_no "Some keys could not be checked. Install them anyway?" y \
                 || bye "Cancelled."
         fi
     else
         warn "Key verification disabled."
+    fi
+
+    # ---- verification-only run --------------------------------------------
+    if [ "${#todo[@]}" -eq 0 ]; then
+        printf '\n'; hr
+        if [ "${bad_installed:-0}" = "1" ]; then
+            die "Check finished: a key already installed does not match its official fingerprint."
+        fi
+        ok "Check finished. No repository was selected for installation."
+        printf '\n'
+        exit 0
     fi
 
     # ---- install ----------------------------------------------------------
