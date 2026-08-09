@@ -8,6 +8,7 @@ Neither depends on the other — copy just the one you need.
 |---|---|
 | `repo-sync.sh` | copies APT repositories and their signing keys between machines |
 | `rename-distro.sh` | changes the name a Linux install reports about itself |
+| `clean-cache.sh` | clears caches and regenerable data, for one user or all of them |
 
 ---
 
@@ -215,3 +216,73 @@ file goes back where, and asks before overwriting.
   everywhere.
 - This only changes what the system *says*. Package sources, branding
   artwork and installed distro packages are untouched.
+
+---
+
+# clean-cache.sh
+
+Removes caches, thumbnails, crash dumps, browser session leftovers and other
+regenerable files for Thunderbird, Firefox, LibreWolf, Chrome, Chromium,
+pCloud and Konqueror/KDE.
+
+## Usage
+
+```
+./clean-cache.sh                    # current user, pick the applications
+./clean-cache.sh -a                 # pick the users, then the applications
+./clean-cache.sh --dry-run          # report only, delete nothing
+./clean-cache.sh firefox chrome     # skip the list, clean these
+./clean-cache.sh --no-tb-mail       # keep Thunderbird local mail stores
+./clean-cache.sh --list             # print the application ids
+```
+
+## Scope
+
+With no arguments only the current user's home is touched and no root
+privileges are needed.
+
+`-a` / `--all` re-runs with `sudo` and opens two lists: first the user
+accounts (real accounts with a home directory, plus `root`), then the
+applications. Both are pre-ticked for what is actually there — a user with
+nothing to clean is listed but unticked, and an application is offered only
+when it is present in **at least one** of the selected users:
+
+```
+  ❯ [✓] alice                        3 app(s) — /home/alice
+    [✓] bob                          1 app(s) — /home/bob
+    [ ] svcuser                      nothing to clean
+
+    [✓] Thunderbird                  found in 1 of 2 users
+    [✓] Chromium                     found in 1 of 2 users
+```
+
+Naming applications on the command line skips the second list. Sizes are
+reported per user and as a total.
+
+## What is deleted
+
+| Application | Removed |
+|---|---|
+| Firefox / LibreWolf | profile `cache`, `cache2`, `thumbnails`, `startupCache`, `offlinecache`, `storage/temporary`, `storage/cache`, Sync logs, session backups, `*.bak` `*.tmp` `*.corrupt`, crash minidumps, plus mesa/IPC caches for Firefox |
+| Thunderbird | profile caches, `global-messages-db.sqlite`, `*.msf` indexes, crash reports, temporary files, and the local mail stores (see below) |
+| Chrome / Chromium | `~/.cache` profile caches, `GPUCache`, `ShaderCache`, `Code Cache`, `DawnCache`, `GrShaderCache`, `Crash Reports`, `*.tmp` `*.log` `*.dmp` |
+| pCloud | cache and thumbnails, in both the `~/.pcloud` and `~/.local/share/pcloud` layouts |
+| Konqueror / KDE | Konqueror and KIO caches, KDE thumbnails (current and legacy), Plasma theme/SVG/icon caches, `*.kcache`, drkonqi crash reports |
+
+`storage/default` is left alone (persistent extension data), and Konqueror
+cookies and history are left alone as well.
+
+**Thunderbird mail stores.** By default everything under `Mail/` and
+`ImapMail/` is removed except `msgFilterRules.dat`. IMAP accounts resync from
+the server, but **POP3 mail and Local Folders are gone for good**. The script
+warns before proceeding; `--no-tb-mail` keeps them.
+
+## Safety
+
+- An application is skipped when one of its processes is running **for that
+  user** (`pgrep -x -u`), so cleaning alice does not fail because bob has
+  Firefox open.
+- Nothing is deleted without a confirmation, except in `--dry-run`, which
+  never deletes and only reports the sizes.
+- Only deletions happen — no file is created in anyone's home, so ownership
+  is never disturbed.
