@@ -53,9 +53,15 @@ if [ ${#KEY_PATHS[@]} -eq 0 ]; then
     done < <(sudo find /etc/apt/trusted.gpg.d /etc/apt/keyrings /usr/share/keyrings -iname "*chrome*" -o -iname "*google*" 2>/dev/null || true)
 fi
 
+if [ ! -s "$REPO_FILE" ]; then
+    echo "Nessun repository Google Chrome trovato su questa macchina."
+fi
+
 if [ ${#KEY_PATHS[@]} -eq 0 ]; then
-    echo "ATTENZIONE: nessuna chiave trovata automaticamente."
-    echo "Copiala manualmente nella cartella: $OUT_DIR"
+    if [ -s "$REPO_FILE" ]; then
+        echo "ATTENZIONE: repository trovato ma nessuna chiave individuata automaticamente."
+        echo "Copiala manualmente nella cartella: $OUT_DIR"
+    fi
 else
     for k in "${KEY_PATHS[@]}"; do
         if sudo test -f "$k"; then

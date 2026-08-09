@@ -20,12 +20,12 @@ if [ ! -d "$SRC_DIR" ]; then
 fi
 
 REPO_FILE="$SRC_DIR/mx.sources.list"
-DEST_LIST="/etc/apt/sources.list.d/mx.list"
-
-if [ ! -f "$REPO_FILE" ]; then
-    echo "File mx.sources.list non trovato in $SRC_DIR"
-    exit 1
+if [ ! -s "$REPO_FILE" ]; then
+    echo "Nessun repository MX Linux da registrare (file mancante o vuoto in $SRC_DIR)."
+    exit 0
 fi
+
+DEST_LIST="/etc/apt/sources.list.d/mx.list"
 
 grep -v '^# --- da:' "$REPO_FILE" | grep -v '^\s*$' > "$DEST_LIST"
 chown root:root "$DEST_LIST"

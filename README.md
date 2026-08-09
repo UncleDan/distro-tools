@@ -1,7 +1,8 @@
 # repo-scripts
 
 Script per copiare la configurazione dei repository APT (e relative chiavi
-GPG) da MX Linux a una Debian, per: MX Linux, Google Chrome, TeamViewer.
+GPG) da MX Linux a una Debian, per: MX Linux, Google Chrome, TeamViewer,
+Visual Studio Code (Microsoft), VSCodium.
 
 ## Contenuto
 
@@ -10,10 +11,14 @@ GPG) da MX Linux a una Debian, per: MX Linux, Google Chrome, TeamViewer.
 | `esporta-mxrepo.sh` | MX Linux | Estrae repo + chiave MX in `mxrepo/` |
 | `esporta-google-chrome.sh` | MX Linux | Estrae repo + chiave Chrome in `chromerepo/` |
 | `esporta-teamviewer.sh` | MX Linux | Estrae repo + chiave TeamViewer in `teamviewerrepo/` |
+| `esporta-vscode.sh` | MX Linux | Estrae repo + chiave VS Code in `vscoderepo/` (se presente) |
+| `esporta-vscodium.sh` | MX Linux | Estrae repo + chiave VSCodium in `vscodiumrepo/` (se presente) |
 | `esporta-tutti.sh` | MX Linux | Lancia tutti gli `esporta-*.sh` in sequenza |
 | `registra-mxrepo.sh` | Debian (root) | Registra repo + chiave MX da `mxrepo/` |
 | `registra-google-chrome.sh` | Debian (root) | Registra repo + chiave Chrome da `chromerepo/` |
 | `registra-teamviewer.sh` | Debian (root) | Registra repo + chiave TeamViewer da `teamviewerrepo/` |
+| `registra-vscode.sh` | Debian (root) | Registra repo + chiave VS Code da `vscoderepo/` (se presente) |
+| `registra-vscodium.sh` | Debian (root) | Registra repo + chiave VSCodium da `vscodiumrepo/` (se presente) |
 | `registra-tutti.sh` | Debian (root) | Lancia tutti i `registra-*.sh` in sequenza, poi `apt update` |
 
 ## Come si usa
@@ -86,7 +91,8 @@ sudo ./registra-google-chrome.sh
 - `registra-tutti.sh` continua con gli script successivi anche se uno
   di essi fallisce (ad es. cartella mancante), segnalando l'errore a
   schermo.
-- Se un repository non è installato su MX Linux, lo script di
-  esportazione corrispondente non troverà nulla da copiare: la
-  sottocartella resterà vuota o assente, e lo script di registrazione
-  relativo lo segnalerà e verrà saltato.
+- Se un repository non è installato su MX Linux (ad es. VS Code o
+  VSCodium non presenti), lo script di esportazione lo segnala a
+  schermo e non crea il file `*.sources.list`: la sottocartella resta
+  vuota. Lo script di registrazione corrispondente rileva l'assenza,
+  lo segnala e si ferma senza errori, senza toccare `/etc/apt/`.

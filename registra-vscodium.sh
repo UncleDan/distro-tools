@@ -1,8 +1,10 @@
 #!/bin/bash
-# registra-google-chrome.sh
+# registra-vscodium.sh
 # Da eseguire su Debian, dopo aver copiato accanto a questo script la
-# cartella "chromerepo" prodotta da esporta-google-chrome.sh.
+# cartella "vscodiumrepo" prodotta da esporta-vscodium.sh.
 # Si autoeleva con sudo se non gia' lanciato come root.
+# Se la cartella e' vuota (repo non presente su MX Linux), lo segnala
+# e non fa nulla.
 
 set -euo pipefail
 
@@ -12,20 +14,21 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC_DIR="$SCRIPT_DIR/chromerepo"
+SRC_DIR="$SCRIPT_DIR/vscodiumrepo"
 
 if [ ! -d "$SRC_DIR" ]; then
-    echo "Cartella 'chromerepo' non trovata accanto a questo script."
+    echo "Cartella 'vscodiumrepo' non trovata accanto a questo script."
     exit 1
 fi
 
-REPO_FILE="$SRC_DIR/chrome.sources.list"
+REPO_FILE="$SRC_DIR/vscodium.sources.list"
+
 if [ ! -s "$REPO_FILE" ]; then
-    echo "Nessun repository Google Chrome da registrare (file mancante o vuoto in $SRC_DIR)."
+    echo "Nessun repository VSCodium da registrare (file mancante o vuoto in $SRC_DIR)."
     exit 0
 fi
 
-DEST_LIST="/etc/apt/sources.list.d/google-chrome.list"
+DEST_LIST="/etc/apt/sources.list.d/vscodium.list"
 
 grep -v '^# --- da:' "$REPO_FILE" | grep -v '^\s*$' > "$DEST_LIST"
 chown root:root "$DEST_LIST"
@@ -65,4 +68,4 @@ echo "Aggiorno gli indici pacchetti (apt update)..."
 apt update
 
 echo ""
-echo "Fatto. Verifica con: apt-cache policy | grep -i chrome"
+echo "Fatto. Verifica con: apt-cache policy | grep -i codium"
