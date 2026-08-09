@@ -59,6 +59,8 @@ fail()    { printf '    %s✘%s %s\n'     "$C_RED" "$C_RST" "$1"; }
 gone()    { printf '    %s−%s %s\n'     "$C_RED" "$C_RST" "$1"; }
 dry()     { printf '    %s~%s %s\n'     "$C_YEL" "$C_RST" "$1"; }
 detail()  { printf '        %s%s%s\n'   "$C_DIM" "$1" "$C_RST"; }
+prof()    { printf '    %s▪ %s%s\n'    "$C_CYN" "$1" "$C_RST"; }
+none()    { printf '      %snothing to remove%s\n' "$C_DIM" "$C_RST"; }
 die()     { printf '\n  %s✘ %s%s\n\n'   "$C_RED$C_B" "$1" "$C_RST"; exit "${2:-1}"; }
 bye()     { printf '\n  %s%s%s\n\n'     "$C_DIM" "$1" "$C_RST"; exit 0; }
 
@@ -171,11 +173,11 @@ cl_run() {
 #       ; process names (space separated)
 # ===========================================================================
 APPS=(
-"thunderbird;Thunderbird;.thunderbird:.cache/thunderbird;thunderbird"
-"firefox;Firefox;.mozilla/firefox:.cache/mozilla/firefox;firefox"
-"librewolf;LibreWolf;.librewolf:.cache/librewolf;librewolf"
-"chrome;Google Chrome;.config/google-chrome:.cache/google-chrome;chrome google-chrome"
-"chromium;Chromium;.config/chromium:.cache/chromium;chromium chromium-browser"
+"thunderbird;Thunderbird;.thunderbird:.cache/thunderbird:.var/app/org.mozilla.Thunderbird:snap/thunderbird;thunderbird"
+"firefox;Firefox;.mozilla/firefox:.cache/mozilla/firefox:.var/app/org.mozilla.firefox:snap/firefox;firefox"
+"librewolf;LibreWolf;.librewolf:.cache/librewolf:.var/app/io.gitlab.librewolf-community;librewolf"
+"chrome;Google Chrome;.config/google-chrome:.cache/google-chrome:.var/app/com.google.Chrome;chrome google-chrome"
+"chromium;Chromium;.config/chromium:.cache/chromium:.var/app/org.chromium.Chromium:snap/chromium;chromium chromium-browser"
 "pcloud;pCloud;.pcloud:.local/share/pcloud;pcloud"
 "kde;Konqueror / KDE;.cache/konqueror:.cache/kio_http:.cache/thumbnails:.thumbnails:.local/share/konqueror;konqueror"
 )
@@ -293,99 +295,185 @@ proc_running() {   # proc_running <user> <process names...>
 # ===========================================================================
 #  Per-application cleaners  -  clean_x <home> <user>
 # ===========================================================================
-clean_gecko() {   # clean_gecko <home> <profiles subdir> <cache subdir> <is firefox>
-    local home="$1" profiles="$1/$2" cachedir="$1/$3" is_ff="$4"
-    local pc pd pname sub
+# ---------------------------------------------------------------------------
+#  Mozilla-style applications (Firefox, LibreWolf, Thunderbird)
+#
+#  Profiles are NOT simply the subdirectories of one folder:
+#    - profiles.ini can point at a directory anywhere,
+#    - a profile directory can be a symlink,
+#    - Flatpak and Snap installs live under their own prefixes.
+#  All of them are collected here, so every profile is cleaned, always.
+# ---------------------------------------------------------------------------
+gecko_profiles() {   # gecko_profiles <app root> <home>
+    local root="$1" home="$2" ini="$1/profiles.ini"
+    local line path isrel=1
 
-    if [ -d "$cachedir" ]; then
+    {
+        if [ -f "$ini" ]; then
+            while IFS= read -r line || [ -n "$line" ]; do
+                line="${line%$'\r'}"
+                case "$line" in
+                    \[*)          isrel=1 ;;
+                    IsRelative=*) isrel="${line#IsRelative=}" ;;
+                    Path=*)
+                        path="${line#Path=}"
+                        [ -z "$path" ] && continue
+                        if [ "$isrel" = "0" ]; then
+                            # profiles.ini belongs to the user; when running as
+                            # root for somebody else never step outside their home
+                            case "$path" in
+                                "$home"/*) printf '%s\n' "$path" ;;
+                                *) warn "profile outside the home ignored: $path" >&2 ;;
+                            esac
+                        else
+                            printf '%s\n' "$root/$path"
+                        fi ;;
+                esac
+            done < "$ini"
+        fi
+        # -L so a profile that is a symlink to a directory is picked up too
+        find -L "$root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null
+    } | while IFS= read -r path; do
+            [ -d "$path" ] && readlink -f "$path"
+        done | sort -u
+}
+
+clean_gecko_profile() {   # clean_gecko_profile <profile dir>
+    local pd="$1" pname sub before
+    pname="$(basename "$pd")"
+    before="$BYTES_USER"
+    prof "profile $pname"
+
+    for sub in cache cache2 thumbnails startupCache offlinecache; do
+        drop_dir "$pd/$sub" "$pname/$sub"
+    done
+    # storage/: only the throwaway subtrees, never storage/default,
+    # which holds persistent extension data.
+    for sub in temporary cache; do
+        drop_dir "$pd/storage/$sub" "$pname/storage/$sub"
+    done
+    drop_dir "$pd/weave/logs"   "$pname/weave/logs"
+    drop_dir "$pd/weave/failed" "$pname/weave/failed"
+
+    drop_files "$pd" "$pname session checkpoints" \
+        -maxdepth 1 -type f -name "sessionCheckpoints.json"
+    drop_files "$pd/sessionstore-backups" "$pname session backups" -type f
+    drop_files "$pd" "$pname tmp/bak" \
+        -maxdepth 2 -type f \( -name "*.bak" -o -name "*.tmp" -o -name "*.corrupt" \)
+    drop_files "$pd" "$pname crash minidumps" \
+        -maxdepth 2 -type f -name "*.dmp"
+
+    [ "$BYTES_USER" = "$before" ] && none
+    return 0
+}
+
+clean_gecko() {   # clean_gecko <home> <firefox|librewolf>
+    local home="$1" flavour="$2"
+    local -a proots=() croots=()
+    case "$flavour" in
+        firefox)
+            proots=(".mozilla/firefox" \
+                    ".var/app/org.mozilla.firefox/.mozilla/firefox" \
+                    "snap/firefox/common/.mozilla/firefox")
+            croots=(".cache/mozilla/firefox" \
+                    ".var/app/org.mozilla.firefox/cache/mozilla/firefox" \
+                    "snap/firefox/common/.cache/mozilla/firefox") ;;
+        librewolf)
+            proots=(".librewolf" \
+                    ".var/app/io.gitlab.librewolf-community/.librewolf")
+            croots=(".cache/librewolf" \
+                    ".var/app/io.gitlab.librewolf-community/cache/librewolf") ;;
+    esac
+
+    local r pc pd
+    for r in "${croots[@]}"; do
+        [ -d "$home/$r" ] || continue
         while IFS= read -r pc; do
             empty_dir "$pc" "cache/$(basename "$pc")"
-        done < <(find "$cachedir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-    fi
+        done < <(find -L "$home/$r" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+    done
 
-    if [ -d "$profiles" ]; then
+    for r in "${proots[@]}"; do
+        [ -d "$home/$r" ] || continue
         while IFS= read -r pd; do
-            pname="$(basename "$pd")"
-            for sub in cache cache2 thumbnails startupCache offlinecache; do
-                drop_dir "$pd/$sub" "$pname/$sub"
-            done
-            # storage/: only the throwaway subtrees, never storage/default,
-            # which holds persistent extension data.
-            for sub in temporary cache; do
-                drop_dir "$pd/storage/$sub" "$pname/storage/$sub"
-            done
-            drop_dir "$pd/weave/logs"   "$pname/weave/logs"
-            drop_dir "$pd/weave/failed" "$pname/weave/failed"
+            clean_gecko_profile "$pd"
+        done < <(gecko_profiles "$home/$r" "$home")
+    done
 
-            drop_files "$pd" "$pname session checkpoints" \
-                -maxdepth 1 -type f -name "sessionCheckpoints.json"
-            drop_files "$pd/sessionstore-backups" "$pname session backups" -type f
-            drop_files "$pd" "$pname tmp/bak" \
-                -maxdepth 2 -type f \( -name "*.bak" -o -name "*.tmp" -o -name "*.corrupt" \)
-            drop_files "$pd" "$pname crash minidumps" \
-                -maxdepth 2 -type f -name "*.dmp"
-        done < <(find "$profiles" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-    fi
-
-    if [ "$is_ff" = "1" ]; then
+    if [ "$flavour" = "firefox" ]; then
         drop_dir "$home/.cache/mesa_shader_cache" "mesa_shader_cache"
         drop_dir "$home/.cache/mozilla-ipc"       "mozilla-ipc"
     fi
 }
 
-clean_firefox()   { clean_gecko "$1" ".mozilla/firefox" ".cache/mozilla/firefox" 1; }
-clean_librewolf() { clean_gecko "$1" ".librewolf"       ".cache/librewolf"       0; }
+clean_firefox()   { clean_gecko "$1" firefox; }
+clean_librewolf() { clean_gecko "$1" librewolf; }
 
 clean_thunderbird() {
-    local home="$1" profiles="$1/.thunderbird" pd pname store f d
+    local home="$1"
+    local -a proots=(".thunderbird" \
+                     ".var/app/org.mozilla.Thunderbird/.thunderbird" \
+                     "snap/thunderbird/common/.thunderbird")
+    local -a croots=(".cache/thunderbird" \
+                     ".var/app/org.mozilla.Thunderbird/cache/thunderbird")
+    local r pd pname store f d before
 
-    empty_dir "$home/.cache/thunderbird" "thunderbird cache"
-    [ -d "$profiles" ] || return 0
+    for r in "${croots[@]}"; do
+        empty_dir "$home/$r" "thunderbird cache"
+    done
 
-    while IFS= read -r pd; do
-        pname="$(basename "$pd")"
-        drop_dir "$pd/cache"        "$pname/cache"
-        drop_dir "$pd/cache2"       "$pname/cache2"
-        drop_dir "$pd/startupCache" "$pname/startupCache"
+    for r in "${proots[@]}"; do
+        [ -d "$home/$r" ] || continue
+        while IFS= read -r pd; do
+            pname="$(basename "$pd")"
+            before="$BYTES_USER"
+            prof "profile $pname"
 
-        drop_files "$pd" "$pname global index" \
-            -maxdepth 1 -type f -name "global-messages-db.sqlite"
-        drop_files "$pd" "$pname .msf indexes" -type f -name "*.msf"
+            drop_dir "$pd/cache"        "$pname/cache"
+            drop_dir "$pd/cache2"       "$pname/cache2"
+            drop_dir "$pd/startupCache" "$pname/startupCache"
 
-        case "$TB_MODE" in
-            full)
-                for store in ImapMail Mail; do
-                    [ -d "$pd/$store" ] || continue
-                    empty_dir "$pd/$store" "$pname/$store (everything)"
-                done
-                ;;
-            filters)
-                for store in ImapMail Mail; do
-                    [ -d "$pd/$store" ] || continue
-                    while IFS= read -r f; do
-                        local fs; fs="$(path_size "$f")"
-                        if $DRY_RUN; then
-                            dry "$pname/${f##"$pd/"} — $(human "$fs")"
-                        else
-                            gone "$pname/${f##"$pd/"} — $(human "$fs")"
-                            rm -f -- "$f"
-                        fi
-                        add_bytes "$fs"
-                    done < <(find "$pd/$store" -mindepth 2 -maxdepth 2 -type f \
-                                ! -name "msgFilterRules.dat" 2>/dev/null)
-                    while IFS= read -r d; do
-                        drop_dir "$d" "$pname/${d##"$pd/"}"
-                    done < <(find "$pd/$store" -mindepth 2 -maxdepth 2 -type d 2>/dev/null)
-                done
-                ;;
-            none) : ;;
-        esac
+            drop_files "$pd" "$pname global index" \
+                -maxdepth 1 -type f -name "global-messages-db.sqlite"
+            drop_files "$pd" "$pname .msf indexes" -type f -name "*.msf"
 
-        drop_dir "$pd/crashes" "$pname/crashes"
-        drop_files "$pd" "$pname crash minidumps" -maxdepth 3 -type f -name "*.dmp"
-        drop_files "$pd" "$pname tmp/bak" \
-            -maxdepth 2 -type f \( -name "*.bak" -o -name "*.tmp" \)
-    done < <(find "$profiles" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+            case "$TB_MODE" in
+                full)
+                    for store in ImapMail Mail; do
+                        [ -d "$pd/$store" ] || continue
+                        empty_dir "$pd/$store" "$pname/$store (everything)"
+                    done
+                    ;;
+                filters)
+                    for store in ImapMail Mail; do
+                        [ -d "$pd/$store" ] || continue
+                        while IFS= read -r f; do
+                            local fs; fs="$(path_size "$f")"
+                            if $DRY_RUN; then
+                                dry "$pname/${f##"$pd/"} — $(human "$fs")"
+                            else
+                                gone "$pname/${f##"$pd/"} — $(human "$fs")"
+                                rm -f -- "$f"
+                            fi
+                            add_bytes "$fs"
+                        done < <(find "$pd/$store" -mindepth 2 -maxdepth 2 -type f \
+                                    ! -name "msgFilterRules.dat" 2>/dev/null)
+                        while IFS= read -r d; do
+                            drop_dir "$d" "$pname/${d##"$pd/"}"
+                        done < <(find "$pd/$store" -mindepth 2 -maxdepth 2 -type d 2>/dev/null)
+                    done
+                    ;;
+                none) : ;;
+            esac
+
+            drop_dir "$pd/crashes" "$pname/crashes"
+            drop_files "$pd" "$pname crash minidumps" -maxdepth 3 -type f -name "*.dmp"
+            drop_files "$pd" "$pname tmp/bak" \
+                -maxdepth 2 -type f \( -name "*.bak" -o -name "*.tmp" \)
+
+            [ "$BYTES_USER" = "$before" ] && none
+        done < <(gecko_profiles "$home/$r" "$home")
+    done
 }
 
 clean_chromium_like() {   # clean_chromium_like <cache root> <config root>
@@ -402,7 +490,7 @@ clean_chromium_like() {   # clean_chromium_like <cache root> <config root>
 
     while IFS= read -r extra; do
         drop_dir "$extra" "${extra##"$config/"}"
-    done < <(find "$config" -type d \
+    done < <(find -L "$config" -type d \
                 \( -name "GPUCache" -o -name "ShaderCache" -o -name "Code Cache" \
                    -o -name "DawnCache" -o -name "GrShaderCache" \
                    -o -name "Crash Reports" \) 2>/dev/null)
@@ -411,8 +499,19 @@ clean_chromium_like() {   # clean_chromium_like <cache root> <config root>
         -maxdepth 4 -type f \( -name "*.tmp" -o -name "*.log" -o -name "*.dmp" \)
 }
 
-clean_chrome()   { clean_chromium_like "$1/.cache/google-chrome" "$1/.config/google-chrome"; }
-clean_chromium() { clean_chromium_like "$1/.cache/chromium"      "$1/.config/chromium"; }
+clean_chrome() {
+    clean_chromium_like "$1/.cache/google-chrome" "$1/.config/google-chrome"
+    clean_chromium_like "$1/.var/app/com.google.Chrome/cache/google-chrome" \
+                        "$1/.var/app/com.google.Chrome/config/google-chrome"
+}
+
+clean_chromium() {
+    clean_chromium_like "$1/.cache/chromium" "$1/.config/chromium"
+    clean_chromium_like "$1/.var/app/org.chromium.Chromium/cache/chromium" \
+                        "$1/.var/app/org.chromium.Chromium/config/chromium"
+    clean_chromium_like "$1/snap/chromium/common/.cache/chromium" \
+                        "$1/snap/chromium/common/.config/chromium"
+}
 
 clean_pcloud() {
     local home="$1"
@@ -449,6 +548,7 @@ run_app() {   # run_app <catalogue index> <home> <user>
     fi
 
     subsec "$name"
+    local before="$BYTES_USER"
     case "$id" in
         thunderbird) clean_thunderbird "$home" ;;
         firefox)     clean_firefox     "$home" ;;
@@ -458,6 +558,7 @@ run_app() {   # run_app <catalogue index> <home> <user>
         pcloud)      clean_pcloud      "$home" ;;
         kde)         clean_kde         "$home" ;;
     esac
+    [ "$BYTES_USER" = "$before" ] && none
     return 0
 }
 

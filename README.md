@@ -291,6 +291,37 @@ reported per user and as a total.
 `storage/default` is left alone (persistent extension data), and Konqueror
 cookies and history are left alone as well.
 
+## Profiles
+
+For Firefox, LibreWolf and Thunderbird **every** profile is cleaned, not just
+the ones that happen to sit inside the application folder. Profiles are
+collected from:
+
+- every subdirectory of the application folder, symlinks included;
+- every `Path=` entry in `profiles.ini`, relative or absolute;
+- the native, Flatpak (`~/.var/app/…`) and Snap (`~/snap/…`) locations.
+
+An absolute `Path=` pointing outside the owning user's home is refused and
+reported — `profiles.ini` is user-writable, and in `-a` mode this runs as
+root.
+
+Chrome and Chromium profiles (`Default`, `Profile 1`, …) were already covered
+by a recursive scan; their Flatpak and Snap prefixes are now included too.
+
+Every profile is announced as it is processed, and one that has nothing left
+to clear says so rather than staying silent:
+
+```
+  Thunderbird
+    ▪ profile t1.default
+    − t1.default/cache2 — 19.53 KB
+    ▪ profile t3.empty
+      nothing to remove
+```
+
+The same applies to an application with nothing to do — it reports "nothing to
+remove" instead of printing an empty section.
+
 **Thunderbird mail stores.** `Mail/` and `ImapMail/` can be handled three
 ways, set with `--tb-mail`:
 
