@@ -19,6 +19,7 @@ VERSION="26.08"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="$SCRIPT_DIR/data"
+FPR_CACHE=""
 
 # ---------------------------------------------------------------------------
 #  Repository catalogue
@@ -72,11 +73,14 @@ detail()  { printf '      %s%s%s\n'    "$C_DIM" "$1" "$C_RST"; }
 die()     { printf '\n  %s✘ %s%s\n\n'  "$C_RED$C_B" "$1" "$C_RST"; exit "${2:-1}"; }
 bye()     { printf '\n  %s%s%s\n\n'      "$C_DIM" "$1" "$C_RST"; exit 0; }
 
+# True when the controlling terminal can actually be opened.
+tty_available() { { : < /dev/tty; } 2>/dev/null; }
+
 # yes/no question, reads from the terminal even inside pipes
 ask_yes_no() {
     local prompt="$1" default="${2:-n}" hint reply
     [ "$default" = "y" ] && hint="[Y/n]" || hint="[y/N]"
-    if [ ! -r /dev/tty ]; then
+    if ! tty_available; then
         [ "$default" = "y" ]; return $?
     fi
     while true; do
@@ -129,7 +133,7 @@ cl_run() {
     section "$title"
 
     # No terminal available: keep the proposed defaults and carry on.
-    if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
+    if [ ! -t 1 ] || ! tty_available; then
         warn "No interactive terminal, using the default selection."
         cl_draw -1
         return 0
@@ -383,56 +387,116 @@ repo_installed() {   # repo_installed <regex> <dest basename>
     return 1
 }
 
-verify_one() {   # verify_one <catalogue index> ; 0 ok, 1 mismatch, 2 not verifiable
-    local idx="$1"
-    local id name url fpr_exp dir
-    id="$(cat_field "$idx" 1)"; name="$(cat_field "$idx" 2)"
+# Expected fingerprints for a repository: the pinned one, or those of the key
+# published by the vendor. Prints nothing when no reference is available.
+expected_fprs() {   # expected_fprs <catalogue index>
+    local idx="$1" url fpr_exp tmp
     url="$(cat_field "$idx" 5)"; fpr_exp="$(cat_field "$idx" 6)"
-    dir="$DATA_DIR/$id"
 
-    command -v gpg >/dev/null 2>&1 || { warn "$name — gpg not installed, cannot verify."; return 2; }
-
-    # Expected fingerprints: the pinned one, or those of the official key.
-    local expected=""
     if [ -n "$fpr_exp" ]; then
-        expected="$fpr_exp"
-    elif [ -n "$url" ]; then
-        local tmp; tmp="$(mktemp)"
-        if command -v curl >/dev/null 2>&1; then
-            curl -fsSL --max-time 30 -o "$tmp" "$url" 2>/dev/null || true
-        elif command -v wget >/dev/null 2>&1; then
-            wget -qO "$tmp" --timeout=30 "$url" 2>/dev/null || true
+        printf '%s\n' "$fpr_exp"
+        return 0
+    fi
+    [ -n "$url" ] || return 1
+
+    # Downloaded once per run and reused for both checks below.
+    local cache="$FPR_CACHE/$(cat_field "$idx" 1)"
+    if [ -f "$cache" ]; then
+        cat "$cache"
+        [ -s "$cache" ] && return 0 || return 1
+    fi
+
+    tmp="$(mktemp)"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --max-time 30 -o "$tmp" "$url" 2>/dev/null || true
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$tmp" --timeout=30 "$url" 2>/dev/null || true
+    fi
+    : > "$cache"
+    [ -s "$tmp" ] && fingerprints_of "$tmp" > "$cache"
+    rm -f "$tmp"
+
+    cat "$cache"
+    [ -s "$cache" ] && return 0 || return 1
+}
+
+# verify_files <catalogue index> <tag> <key file>...
+#   0 = matches, 1 = mismatch, 2 = cannot be checked
+verify_files() {
+    local idx="$1" tag="$2"; shift 2
+    local name; name="$(cat_field "$idx" 2)"
+    local label="$name ${C_DIM}($tag)${C_RST}"
+
+    command -v gpg >/dev/null 2>&1 || { warn "$label — gpg not installed, cannot check."; return 2; }
+    [ "$#" -gt 0 ] || { warn "$label — no key found, cannot check."; return 2; }
+
+    local expected
+    if ! expected="$(expected_fprs "$idx")" || [ -z "$expected" ]; then
+        if [ -z "$(cat_field "$idx" 5)$(cat_field "$idx" 6)" ]; then
+            warn "$label — no official reference available, cannot check."
+        else
+            warn "$label — official key could not be downloaded, cannot check."
         fi
-        if [ -s "$tmp" ]; then
-            expected="$(fingerprints_of "$tmp")"
-        fi
-        rm -f "$tmp"
-        [ -z "$expected" ] && { warn "$name — official key not reachable, cannot verify."; return 2; }
-    else
-        warn "$name — no official reference available, cannot verify."
         return 2
     fi
 
-    local k got matched=0 first=""
-    for k in "$dir"/keys/*; do
+    local k got matched=0 first="" seen=0
+    for k in "$@"; do
         [ -f "$k" ] || continue
         while IFS= read -r got; do
+            seen=1
             [ -z "$first" ] && first="$got"
-            case "$expected" in
-                *"$got"*) matched=1 ;;
-            esac
+            case "$expected" in *"$got"*) matched=1 ;; esac
         done < <(fingerprints_of "$k")
     done
 
+    if [ "$seen" = "0" ]; then
+        warn "$label — key file missing or unreadable, cannot check."
+        for k in "$@"; do [ -f "$k" ] || detail "missing: $k"; done
+        return 2
+    fi
+
     if [ "$matched" = "1" ]; then
-        ok "$name — key matches the official fingerprint"
+        ok "$label — matches the official fingerprint"
         return 0
     fi
 
-    fail "$name — KEY MISMATCH"
-    detail "exported:  $(pretty_fpr "${first:-none found}")"
+    fail "$label — KEY MISMATCH"
+    detail "found:     $(pretty_fpr "${first:-none}")"
     detail "official:  $(pretty_fpr "$(printf '%s' "$expected" | head -n1)")"
     return 1
+}
+
+# Key files this repository ships in the export folder.
+exported_keys() {   # exported_keys <catalogue index>
+    local dir="$DATA_DIR/$(cat_field "$1" 1)/keys" k
+    for k in "$dir"/*; do [ -f "$k" ] && printf '%s\n' "$k"; done
+}
+
+# Key files this repository already uses on the running system.
+installed_keys() {   # installed_keys <catalogue index>
+    local regex glob f p d
+    regex="$(cat_field "$1" 3)"; glob="$(cat_field "$1" 4)"
+    local -a keys=()
+
+    while IFS= read -r f; do
+        grep -Eqi -- "$regex" "$f" 2>/dev/null || continue
+        while IFS= read -r p; do [ -n "$p" ] && keys+=("$p"); done < <(
+            grep -oP '(?<=signed-by=)[^]\s]+' "$f" 2>/dev/null
+            grep -oP '(?<=^Signed-By:)\s*\S+' "$f" 2>/dev/null | tr -d ' '
+        )
+    done < <(apt_files)
+
+    if [ "${#keys[@]}" -eq 0 ]; then
+        for d in "${APT_KEY_DIRS[@]}"; do
+            [ -d "$d" ] || continue
+            while IFS= read -r p; do [ -n "$p" ] && keys+=("$p"); done < <(
+                find "$d" -maxdepth 1 -type f -iname "$glob" 2>/dev/null)
+        done
+    fi
+
+    [ "${#keys[@]}" -eq 0 ] && return 0
+    printf '%s\n' "${keys[@]}" | awk 'NF' | sort -u
 }
 
 import_one() {   # import_one <catalogue index>
@@ -511,7 +575,7 @@ run_import() {
         fi
         cl_add "$name" "$state" "$hint"
     done
-    cl_add "Verify keys against official sources" 1 "recommended — needs network"
+    cl_add "Verify signing keys" 1 "exported + already installed — needs network"
 
     cl_run "Select what to install" || bye "Cancelled."
 
@@ -548,15 +612,43 @@ run_import() {
     # ---- key verification -------------------------------------------------
     if [ "$do_verify" = "1" ]; then
         section "Verifying signing keys"
-        local bad=0 unknown=0 rc
+        FPR_CACHE="$(mktemp -d)"
+        local bad=0 bad_installed=0 unknown=0 rc sel
+        local -a kf=()
+
+        # a) the keys about to be installed
         for i in "${todo[@]}"; do
-            verify_one "$i"; rc=$?
+            mapfile -t kf < <(exported_keys "$i")
+            verify_files "$i" "to install" "${kf[@]}"; rc=$?
             [ "$rc" -eq 1 ] && bad=1
             [ "$rc" -eq 2 ] && unknown=1
         done
+
+        # b) the keys already on this system, for repositories that are not
+        #    being replaced by this run
+        for i in "${!CATALOGUE[@]}"; do
+            sel=0
+            for j in "${todo[@]}"; do [ "$j" = "$i" ] && sel=1; done
+            [ "$sel" = "1" ] && continue
+            repo_installed "$(cat_field "$i" 3)" || continue
+            mapfile -t kf < <(installed_keys "$i")
+            verify_files "$i" "already installed" "${kf[@]}"; rc=$?
+            [ "$rc" -eq 1 ] && bad_installed=1
+            [ "$rc" -eq 2 ] && unknown=1
+        done
+
+        rm -rf "$FPR_CACHE"
+
         if [ "$bad" = "1" ]; then
             printf '\n'
-            die "Aborted: a key does not match its official fingerprint. Nothing was installed."
+            die "Aborted: a key to be installed does not match its official fingerprint. Nothing was installed."
+        fi
+        if [ "$bad_installed" = "1" ]; then
+            printf '\n'
+            warn "A key already present on this system does not match its official"
+            detail "fingerprint. It is not one of the repositories being installed now,"
+            detail "but you should look into it before trusting that repository."
+            ask_yes_no "Continue with the installation anyway?" n || bye "Cancelled."
         fi
         if [ "$unknown" = "1" ]; then
             printf '\n'

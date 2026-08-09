@@ -42,7 +42,7 @@ Export or Import, never both: picking one automatically clears the other.
   ❯ [✓] Google Chrome
     [ ] TeamViewer               already installed
     [✓] Claude Desktop
-    [✓] Verify keys against official sources   recommended — needs network
+    [✓] Verify signing keys      exported + already installed — needs network
 ```
 
 | Key | Action |
@@ -66,18 +66,28 @@ files that would be overwritten, before touching anything.
 
 ## Key verification
 
-In import mode the last checkbox enables verification. For each repository the
-script compares the fingerprint of the exported key with the official one —
-either the fingerprint pinned in the script (Claude Desktop) or the key
-downloaded from the vendor's published URL.
+In import mode the last checkbox enables verification. Fingerprints are
+compared against the official reference — either the one pinned in the script
+(Claude Desktop) or the key published at the vendor's URL.
 
-- **Match** → installation continues.
-- **Mismatch** → the run **stops immediately** and nothing is written to
-  `/etc/apt`. Both fingerprints are printed so you can see what differs.
-- **Cannot be checked** (no network, no public reference, `gpg` missing) →
-  you are asked whether to continue anyway.
+Two sets of keys are checked:
 
-Verification happens *before* any file is installed, so a bad key never
+1. **Keys about to be installed**, taken from `data/`.
+2. **Keys already present on this system**, for every catalogued repository
+   configured in `/etc/apt` that is *not* being reinstalled by this run. This
+   turns the option into a small audit of what the machine already trusts.
+
+Outcomes:
+
+| Result | What happens |
+|---|---|
+| Match | continues |
+| Mismatch on a key **to be installed** | run **stops immediately**, nothing is written to `/etc/apt` |
+| Mismatch on a key **already installed** | reported in full, then you are asked whether to continue (defaults to no) |
+| Cannot be checked (no network, no public reference, key file missing, `gpg` absent) | reported, then you are asked whether to continue (defaults to yes) |
+
+Both fingerprints are printed on a mismatch so you can see exactly what
+differs. Verification runs *before* anything is installed, so a bad key never
 reaches the system.
 
 ## Where the keys are restored
