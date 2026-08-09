@@ -1,0 +1,15 @@
+# --- da: /etc/apt/sources.list.d/teamviewer.list ---
+###   TeamViewer DEB repository list
+###        - prevent it from being updated by TeamViewer package updates
+###        - will be lost after using the 'teamviewer repo' command
+###       cp /opt/teamviewer/tv_bin/script/teamviewer.list /etc/apt/sources.list.d/teamviewer.list
+###       which has the same effect as 'teamviewer repo default'
+###       teamviewer repo                - show current repository configuration
+###       teamviewer repo default        - restore default configuration
+###       teamviewer repo disable        - disable the repository
+###       teamviewer repo stable         - make all regular TeamViewer packages available (default)
+###       teamviewer repo preview        - additionally, make feature preview packages available
+###       teamviewer repo development    - additionally, make the latest development packages available
+deb [signed-by=/usr/share/keyrings/teamviewer-keyring.gpg] https://linux.teamviewer.com/deb stable main
+# deb [signed-by=/usr/share/keyrings/teamviewer-keyring.gpg] https://linux.teamviewer.com/deb preview main
+

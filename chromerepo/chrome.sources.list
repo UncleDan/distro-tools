@@ -1,0 +1,5 @@
+# --- da: /etc/apt/sources.list.d/google-chrome.sources ---
+X-Repolib-Name: Google Chrome
+URIs: https://dl.google.com/linux/chrome-stable/deb/
+Signed-By: /usr/share/keyrings/google-chrome.gpg
+
