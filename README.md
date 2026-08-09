@@ -1,98 +1,127 @@
-# repo-scripts
+# repo-sync
 
-Script per copiare la configurazione dei repository APT (e relative chiavi
-GPG) da MX Linux a una Debian, per: MX Linux, Google Chrome, TeamViewer,
-Visual Studio Code (Microsoft), VSCodium.
+One script to copy APT repository definitions and their GPG signing keys from
+one machine to another — typically from MX Linux to a fresh Debian install.
 
-## Contenuto
+It replaces the old collection of `esporta-*.sh` / `registra-*.sh` scripts:
+everything is now a single file with a checkbox interface.
 
-| File | Dove si esegue | Cosa fa |
-|---|---|---|
-| `esporta-mxrepo.sh` | MX Linux | Estrae repo + chiave MX in `mxrepo/` |
-| `esporta-google-chrome.sh` | MX Linux | Estrae repo + chiave Chrome in `chromerepo/` |
-| `esporta-teamviewer.sh` | MX Linux | Estrae repo + chiave TeamViewer in `teamviewerrepo/` |
-| `esporta-vscode.sh` | MX Linux | Estrae repo + chiave VS Code in `vscoderepo/` (se presente) |
-| `esporta-vscodium.sh` | MX Linux | Estrae repo + chiave VSCodium in `vscodiumrepo/` (se presente) |
-| `esporta-tutti.sh` | MX Linux | Lancia tutti gli `esporta-*.sh` in sequenza |
-| `registra-mxrepo.sh` | Debian (root) | Registra repo + chiave MX da `mxrepo/` |
-| `registra-google-chrome.sh` | Debian (root) | Registra repo + chiave Chrome da `chromerepo/` |
-| `registra-teamviewer.sh` | Debian (root) | Registra repo + chiave TeamViewer da `teamviewerrepo/` |
-| `registra-vscode.sh` | Debian (root) | Registra repo + chiave VS Code da `vscoderepo/` (se presente) |
-| `registra-vscodium.sh` | Debian (root) | Registra repo + chiave VSCodium da `vscodiumrepo/` (se presente) |
-| `registra-tutti.sh` | Debian (root) | Lancia tutti i `registra-*.sh` in sequenza, poi `apt update` |
+## Supported repositories
 
-## Come si usa
+| Repository | Official key source used for verification |
+|---|---|
+| MX Linux | — (no stable public reference) |
+| Google Chrome | `https://dl.google.com/linux/linux_signing_key.pub` |
+| TeamViewer | `https://linux.teamviewer.com/pubkey/currentkey.asc` |
+| Visual Studio Code | `https://packages.microsoft.com/keys/microsoft.asc` |
+| VSCodium | `https://gitlab.com/paulcarroty/vscodium-deb-rpm-repo/raw/master/pub.gpg` |
+| Claude Desktop | `https://downloads.claude.ai/claude-desktop/key.asc` — fingerprint pinned in the script |
 
-1. **Su MX Linux**, estrai lo zip ed entra nella cartella:
-   ```
-   cd repo-scripts
-   ./esporta-tutti.sh
-   ```
-   Al termine troverai nella stessa cartella le sottocartelle `mxrepo/`,
-   `chromerepo/` e `teamviewerrepo/`, ciascuna con il file
-   `*.sources.list` e la relativa chiave GPG (se trovata).
-
-2. **Copia l'intera cartella `repo-scripts`** (script + sottocartelle
-   popolate) sulla macchina Debian, ad esempio con una chiavetta USB,
-   `scp` o una cartella condivisa.
-
-3. **Su Debian**, entra nella cartella copiata ed esegui come root:
-   ```
-   cd repo-scripts
-   sudo ./registra-tutti.sh
-   ```
-   Verranno creati i file in `/etc/apt/sources.list.d/`, le chiavi
-   copiate in `/etc/apt/trusted.gpg.d/` (o `/etc/apt/keyrings/` per i
-   formati `.asc`/`.key`), e infine eseguito `apt update`.
-
-## Eseguire un singolo repository
-
-Se serve solo un repository specifico, si possono lanciare i singoli
-script invece di quelli "tutti":
+## Usage
 
 ```
-# su MX Linux
-./esporta-google-chrome.sh
-
-# su Debian, dopo aver copiato la cartella chromerepo/ accanto allo script
-sudo ./registra-google-chrome.sh
+./repo-sync.sh export     # on the source machine
+./repo-sync.sh import     # on the target machine (asks for root)
+./repo-sync.sh            # asks which mode to run
 ```
 
-## Permessi e proprietario
+1. **Source machine** — run `./repo-sync.sh export`. The script scans
+   `/etc/apt/sources.list` and `/etc/apt/sources.list.d/`, lists the
+   repositories it actually finds, and saves the selected ones into `data/`.
+2. **Copy the whole `repo-sync` folder** (script + `data/`) to the target
+   machine — USB stick, `scp`, shared folder.
+3. **Target machine** — run `./repo-sync.sh import`. It re-creates the
+   repository files and the keys, then runs `apt update`.
 
-- Gli script `esporta-*.sh` **non vanno lanciati con `sudo` davanti**:
-  girano come utente normale e usano `sudo` internamente solo per
-  leggere gli eventuali file protetti sotto `/etc/apt/`. Alla prima
-  lettura protetta viene chiesta la password sudo una sola volta
-  (`sudo -v`), poi riutilizzata per il resto dell'esecuzione.
-  I file esportati (`mxrepo/`, `chromerepo/`, `teamviewerrepo/`)
-  restano di proprieta' dell'utente che ha lanciato lo script, con
-  permessi `755` per le cartelle e `644` per i file: si copiano quindi
-  liberamente (USB, scp, cartella condivisa) senza problemi di
-  permessi.
-- Gli script `registra-*.sh` (e `registra-tutti.sh`) **si autoelevano
-  con `sudo`** se non vengono lanciati come root: se li avvii senza
-  `sudo`, lo script si rilancia da solo chiedendo la password. I file
-  installati in `/etc/apt/sources.list.d/`, `/etc/apt/trusted.gpg.d/`
-  e `/etc/apt/keyrings/` vengono impostati esplicitamente con
-  proprietario `root:root` e permessi `644` (`755` per la cartella
-  `/etc/apt/keyrings` se creata).
+## The checkbox interface
 
-## Note
+```
+  ❯ [✓] Google Chrome
+    [ ] TeamViewer               already installed
+    [✓] Claude Desktop
+    [✓] Verify keys against official sources   recommended — needs network
+```
 
-- Gli script di esportazione cercano automaticamente la chiave GPG
-  associata al repository (tramite `signed-by=` / `Signed-By:` nei file
-  apt, oppure cercando file con il nome del prodotto in
-  `/etc/apt/trusted.gpg.d`, `/etc/apt/keyrings`, `/usr/share/keyrings`).
-  Se non trovano nulla, avvisano a schermo: in tal caso copia la chiave
-  a mano nella sottocartella corrispondente prima di spostarti su Debian.
-- Gli script di registrazione vanno sempre eseguiti con `sudo` /come
-  root, perché scrivono in `/etc/apt/`.
-- `registra-tutti.sh` continua con gli script successivi anche se uno
-  di essi fallisce (ad es. cartella mancante), segnalando l'errore a
-  schermo.
-- Se un repository non è installato su MX Linux (ad es. VS Code o
-  VSCodium non presenti), lo script di esportazione lo segnala a
-  schermo e non crea il file `*.sources.list`: la sottocartella resta
-  vuota. Lo script di registrazione corrispondente rileva l'assenza,
-  lo segnala e si ferma senza errori, senza toccare `/etc/apt/`.
+| Key | Action |
+|---|---|
+| `↑` `↓` (or `k` `j`) | move |
+| `Space` | tick / untick |
+| `A` | select all / none |
+| `Enter` | confirm |
+| `Q` or `Esc` | cancel |
+
+**What is ticked by default**
+
+- *Export*: every repository whose key is **not yet** in the `data/` folder.
+- *Import*: every repository **not yet** present on this system.
+
+So a plain `Enter` does the sensible thing: only what is missing.
+
+Anything already present is left unticked, and if you tick it anyway the
+script asks for confirmation **one repository at a time**, showing the exact
+files that would be overwritten, before touching anything.
+
+## Key verification
+
+In import mode the last checkbox enables verification. For each repository the
+script compares the fingerprint of the exported key with the official one —
+either the fingerprint pinned in the script (Claude Desktop) or the key
+downloaded from the vendor's published URL.
+
+- **Match** → installation continues.
+- **Mismatch** → the run **stops immediately** and nothing is written to
+  `/etc/apt`. Both fingerprints are printed so you can see what differs.
+- **Cannot be checked** (no network, no public reference, `gpg` missing) →
+  you are asked whether to continue anyway.
+
+Verification happens *before* any file is installed, so a bad key never
+reaches the system.
+
+## Where the keys are restored
+
+The export writes a `manifest` file recording the original absolute path of
+every key. On import each key goes back to exactly that path, so the
+`signed-by=` option in the repository line keeps pointing at a valid file.
+This matters for repositories like Claude Desktop, whose key lives in
+`/usr/share/keyrings/claude-desktop-archive-keyring.asc`.
+
+## Layout after an export
+
+```
+repo-sync/
+├── repo-sync.sh
+├── README.md
+└── data/
+    ├── chrome/
+    │   ├── repo.list
+    │   ├── manifest
+    │   └── keys/google-chrome.gpg
+    └── claude/
+        ├── repo.list
+        ├── manifest
+        └── keys/claude-desktop-archive-keyring.asc
+```
+
+## Adding a repository
+
+Add one line to the `CATALOGUE` array at the top of the script:
+
+```
+"id;Display name;apt match regex;key filename glob;official key URL;pinned fingerprint"
+```
+
+Fields are separated by `;` so the regex may use `|`. The last two fields are
+optional — leave them empty and that repository will simply be reported as
+"cannot be checked" during verification.
+
+## Notes
+
+- Export runs as a normal user and calls `sudo` only to read `/etc/apt`;
+  the `data/` folder is left owned by the real user so it can be copied
+  freely.
+- Import re-runs itself with `sudo` if needed, and writes everything as
+  `root:root` with mode `644` (`755` for key directories).
+- `gpg` is used to read fingerprints, `curl` or `wget` to fetch official keys.
+  Without them the script still works, only verification is unavailable.
+- Colours are disabled automatically when the output is not a terminal, or
+  when `NO_COLOR` is set.
