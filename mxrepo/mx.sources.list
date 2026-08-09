@@ -1,8 +1,0 @@
-# --- da: /etc/apt/sources.list.d/mx.sources ---
-URIs: http://it.mxrepo.com/mx/repo/
-Signed-By: /usr/share/keyrings/mx-25-archive-keyring.gpg 
-URIs: http://it.mxrepo.com/mx/repo/
-Signed-By: /usr/share/keyrings/mx-25-archive-keyring.gpg 
-URIs: http://it.mxrepo.com/mx/testrepo/
-Signed-By: /usr/share/keyrings/mx-25-archive-keyring.gpg 
-

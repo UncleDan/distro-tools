@@ -1,3 +1,0 @@
-# --- da: /etc/apt/sources.list.d/vscodium.list ---
-deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/vscodium-archive-keyring.gpg] https://download.vscodium.com/debs vscodium main
-
