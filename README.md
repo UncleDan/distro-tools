@@ -228,18 +228,26 @@ pCloud and Konqueror/KDE.
 ## Usage
 
 ```
-./clean-cache.sh                    # current user, pick the applications
+./clean-cache.sh                    # show the help
+./clean-cache.sh -c                 # current user, non-interactive
 ./clean-cache.sh -a                 # pick the users, then the applications
+./clean-cache.sh -c -i              # current user, but ask first
 ./clean-cache.sh --dry-run          # report only, delete nothing
-./clean-cache.sh firefox chrome     # skip the list, clean these
-./clean-cache.sh --no-tb-mail       # keep Thunderbird local mail stores
+./clean-cache.sh firefox chrome     # current user, only these (implies -c)
+./clean-cache.sh --tb-mail none     # keep Thunderbird mail stores
 ./clean-cache.sh --list             # print the application ids
 ```
 
+Called with no argument at all it prints the help and exits — cleaning always
+takes an explicit request.
+
 ## Scope
 
-With no arguments only the current user's home is touched and no root
-privileges are needed.
+`-c` cleans the current user's home non-interactively: it still reports
+everything it removes, but asks nothing — no lists, no confirmation. Every
+application found is processed and no root privileges are needed. This is the
+cron-friendly mode. Naming applications on the command line implies it.
+Add `-i` if you want the lists and the confirmation in this mode too.
 
 `-a` / `--all` re-runs with `sudo` and opens two lists: first the user
 accounts (real accounts with a home directory, plus `root`), then the
@@ -272,17 +280,37 @@ reported per user and as a total.
 `storage/default` is left alone (persistent extension data), and Konqueror
 cookies and history are left alone as well.
 
-**Thunderbird mail stores.** By default everything under `Mail/` and
-`ImapMail/` is removed except `msgFilterRules.dat`. IMAP accounts resync from
-the server, but **POP3 mail and Local Folders are gone for good**. The script
-warns before proceeding; `--no-tb-mail` keeps them.
+**Thunderbird mail stores.** `Mail/` and `ImapMail/` can be handled three
+ways, set with `--tb-mail`:
+
+| Mode | Effect |
+|---|---|
+| `full` | the folders are emptied completely, message filters included |
+| `filters` | everything goes except `msgFilterRules.dat` — **the default** |
+| `none` | left untouched (`--no-tb-mail` is the same thing) |
+
+IMAP accounts resync from the server, but **POP3 mail and Local Folders are
+gone for good** in the first two modes.
+
+In `-a` mode the choice is asked once, as a single-choice list preset to
+"delete except message filters", and applies to every selected user:
+
+```
+  ❯ ( ) Delete the whole folders       message filters included
+    (•) Delete except message filters  keeps msgFilterRules.dat
+    ( ) Do not delete them             Mail/ and ImapMail/ untouched
+```
+
+Passing `--tb-mail` on the command line skips that question. In `-c` mode the
+default (`filters`) applies without asking.
 
 ## Safety
 
 - An application is skipped when one of its processes is running **for that
   user** (`pgrep -x -u`), so cleaning alice does not fail because bob has
   Firefox open.
-- Nothing is deleted without a confirmation, except in `--dry-run`, which
-  never deletes and only reports the sizes.
+- `-a` and `-i` ask for confirmation before deleting. `-c` on its own does
+  not — that is the point of it — so try `--dry-run` first, which never
+  deletes and only reports the sizes.
 - Only deletions happen — no file is created in anyone's home, so ownership
   is never disturbed.

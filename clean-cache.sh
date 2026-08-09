@@ -5,10 +5,11 @@
 #  Removes caches, thumbnails, crash dumps and other regenerable files for
 #  Thunderbird, Firefox, LibreWolf, Chrome, Chromium, pCloud and Konqueror/KDE.
 #
-#    ./clean-cache.sh                 current user only
+#    ./clean-cache.sh                 show this help
+#    ./clean-cache.sh -c              current user, non-interactive
 #    ./clean-cache.sh -a              pick users, then applications
 #    ./clean-cache.sh --dry-run       show what would go, delete nothing
-#    ./clean-cache.sh firefox chrome  only these applications
+#    ./clean-cache.sh firefox chrome  current user, only these applications
 #
 #  The lists are checkbox lists:
 #    Up/Down  move      Space  toggle      A  all/none      Enter  confirm
@@ -19,7 +20,13 @@ set -uo pipefail
 VERSION="26.08"
 
 DRY_RUN=false
-TB_MBOX=true          # Thunderbird: also wipe the local mail stores
+# Thunderbird local mail stores (Mail/ and ImapMail/):
+#   full     delete everything, message filters included
+#   filters  delete everything except msgFilterRules.dat   (default)
+#   none     leave them alone
+TB_MODE="filters"
+TB_MODE_SET=false     # true once the mode comes from the command line
+INTERACTIVE=false     # lists and confirmation; off unless -a or -i
 BYTES_TOTAL=0
 BYTES_USER=0
 
@@ -345,25 +352,34 @@ clean_thunderbird() {
             -maxdepth 1 -type f -name "global-messages-db.sqlite"
         drop_files "$pd" "$pname .msf indexes" -type f -name "*.msf"
 
-        if $TB_MBOX; then
-            for store in ImapMail Mail; do
-                [ -d "$pd/$store" ] || continue
-                while IFS= read -r f; do
-                    local fs; fs="$(path_size "$f")"
-                    if $DRY_RUN; then
-                        dry "$pname/${f##"$pd/"} — $(human "$fs")"
-                    else
-                        gone "$pname/${f##"$pd/"} — $(human "$fs")"
-                        rm -f -- "$f"
-                    fi
-                    add_bytes "$fs"
-                done < <(find "$pd/$store" -mindepth 2 -maxdepth 2 -type f \
-                            ! -name "msgFilterRules.dat" 2>/dev/null)
-                while IFS= read -r d; do
-                    drop_dir "$d" "$pname/${d##"$pd/"}"
-                done < <(find "$pd/$store" -mindepth 2 -maxdepth 2 -type d 2>/dev/null)
-            done
-        fi
+        case "$TB_MODE" in
+            full)
+                for store in ImapMail Mail; do
+                    [ -d "$pd/$store" ] || continue
+                    empty_dir "$pd/$store" "$pname/$store (everything)"
+                done
+                ;;
+            filters)
+                for store in ImapMail Mail; do
+                    [ -d "$pd/$store" ] || continue
+                    while IFS= read -r f; do
+                        local fs; fs="$(path_size "$f")"
+                        if $DRY_RUN; then
+                            dry "$pname/${f##"$pd/"} — $(human "$fs")"
+                        else
+                            gone "$pname/${f##"$pd/"} — $(human "$fs")"
+                            rm -f -- "$f"
+                        fi
+                        add_bytes "$fs"
+                    done < <(find "$pd/$store" -mindepth 2 -maxdepth 2 -type f \
+                                ! -name "msgFilterRules.dat" 2>/dev/null)
+                    while IFS= read -r d; do
+                        drop_dir "$d" "$pname/${d##"$pd/"}"
+                    done < <(find "$pd/$store" -mindepth 2 -maxdepth 2 -type d 2>/dev/null)
+                done
+                ;;
+            none) : ;;
+        esac
 
         drop_dir "$pd/crashes" "$pname/crashes"
         drop_files "$pd" "$pname crash minidumps" -maxdepth 3 -type f -name "*.dmp"
@@ -471,14 +487,23 @@ need_root() {
 # ===========================================================================
 usage() {
     banner "clean-cache $VERSION"
-    printf '  %sUsage:%s %s [-a] [--dry-run] [--no-tb-mail] [app ...]\n\n' \
+    printf '  %sUsage:%s %s [-c|-a] [-i] [--dry-run] [--tb-mail MODE] [app ...]\n\n' \
         "$C_B" "$C_RST" "$(basename "$0")"
-    printf '    %s-a, --all%s      pick which users to clean, then which applications\n' "$C_B" "$C_RST"
-    printf '    %s--dry-run%s      report what would be removed, delete nothing\n' "$C_B" "$C_RST"
-    printf '    %s--no-tb-mail%s   keep Thunderbird local mail stores\n' "$C_B" "$C_RST"
-    printf '    %s--list%s         print the application ids and exit\n' "$C_B" "$C_RST"
-    printf '\n  With no argument only the current user is cleaned, choosing the\n'
-    printf '  applications from a checkbox list.\n\n'
+    printf '    %s-c, --current%s    clean the current user, non-interactive\n' "$C_B" "$C_RST"
+    printf '    %s-a, --all%s        pick which users to clean, then which applications\n' "$C_B" "$C_RST"
+    printf '    %s-i%s               ask before acting in current-user mode\n' "$C_B" "$C_RST"
+    printf '    %s--dry-run%s        report what would be removed, delete nothing\n' "$C_B" "$C_RST"
+    printf '    %s--tb-mail MODE%s   Thunderbird mail stores: full | filters | none\n' "$C_B" "$C_RST"
+    printf '    %s--no-tb-mail%s     same as --tb-mail none\n' "$C_B" "$C_RST"
+    printf '    %s--list%s           print the application ids and exit\n' "$C_B" "$C_RST"
+    printf '\n  %s-c%s is non-interactive: it reports what it does as usual, but asks\n' "$C_B" "$C_RST"
+    printf '  nothing — no lists, no confirmation. Every application found for the\n'
+    printf '  current user is processed and Thunderbird mail stores are emptied\n'
+    printf '  except the message filters. Suitable for cron.\n'
+    printf '  Naming applications implies %s-c%s: %s%s firefox chrome%s\n' \
+        "$C_B" "$C_RST" "$C_DIM" "$(basename "$0")" "$C_RST"
+    printf '\n  %s-a%s asks which users and which applications, and how to treat the\n' "$C_B" "$C_RST"
+    printf '  Thunderbird mail stores, then asks for confirmation.\n\n'
     printf '  Applications: '
     local i
     for i in "${!APPS[@]}"; do printf '%s ' "$(app_field "$i" 1)"; done
@@ -488,11 +513,28 @@ usage() {
 ALL_USERS=false
 declare -a CLI_APPS=()
 
+# No argument at all: show the help and stop. Cleaning always needs an
+# explicit request.
+[ $# -eq 0 ] && { usage; exit 0; }
+
 while [ $# -gt 0 ]; do
     case "$1" in
-        -a|--all)      ALL_USERS=true ;;
+        -a|--all)      ALL_USERS=true; INTERACTIVE=true ;;
+        -c|--current)  ALL_USERS=false ;;
+        -i|--interactive) INTERACTIVE=true ;;
         --dry-run|-n)  DRY_RUN=true ;;
-        --no-tb-mail)  TB_MBOX=false ;;
+        --no-tb-mail)  TB_MODE="none"; TB_MODE_SET=true ;;
+        --tb-mail)
+            shift
+            case "${1:-}" in
+                full|filters|none) TB_MODE="$1"; TB_MODE_SET=true ;;
+                *) usage; die "--tb-mail expects: full, filters or none" ;;
+            esac ;;
+        --tb-mail=*)
+            case "${1#*=}" in
+                full|filters|none) TB_MODE="${1#*=}"; TB_MODE_SET=true ;;
+                *) usage; die "--tb-mail expects: full, filters or none" ;;
+            esac ;;
         --list)
             for i in "${!APPS[@]}"; do
                 printf '%-14s %s\n' "$(app_field "$i" 1)" "$(app_field "$i" 2)"
@@ -517,7 +559,11 @@ $DRY_RUN && warn "Dry run — nothing will be deleted."
 declare -a SEL_USER=() SEL_HOME=()
 
 if $ALL_USERS; then
-    need_root --all $($DRY_RUN && echo --dry-run) $($TB_MBOX || echo --no-tb-mail) "${CLI_APPS[@]}"
+    declare -a reexec=(--all)
+    $DRY_RUN     && reexec+=(--dry-run)
+    $TB_MODE_SET && reexec+=(--tb-mail "$TB_MODE")
+    [ "${#CLI_APPS[@]}" -gt 0 ] && reexec+=("${CLI_APPS[@]}")
+    need_root "${reexec[@]}"
 
     declare -a all_u=() all_h=()
     while IFS=: read -r u h; do all_u+=("$u"); all_h+=("$h"); done < <(list_users)
@@ -548,7 +594,11 @@ if $ALL_USERS; then
 else
     SEL_USER+=("$(id -un)")
     SEL_HOME+=("${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}")
-    info "Current user only — use -a to pick other users."
+    if $INTERACTIVE; then
+        info "Current user only — use -a to pick other users."
+    else
+        info "Current user, non-interactive — use -a for other users, -i to be asked."
+    fi
 fi
 
 # ---- which applications ---------------------------------------------------
@@ -568,21 +618,48 @@ else
     done
     [ "${#offer[@]}" -eq 0 ] && bye "Nothing found to clean for the selected user(s)."
 
-    cl_reset
-    for k in "${!offer[@]}"; do
-        if [ "${#SEL_USER[@]}" -gt 1 ]; then
-            cl_add "$(app_field "${offer[$k]}" 2)" 1 "found in ${count[$k]} of ${#SEL_USER[@]} users"
-        else
-            cl_add "$(app_field "${offer[$k]}" 2)" 1 ""
-        fi
-    done
-    cl_run "Select the applications to clean" || bye "Cancelled."
-
-    for k in "${!offer[@]}"; do
-        [ "${CL_STATE[$k]}" = "1" ] && SEL_APP+=("${offer[$k]}")
-    done
+    if $INTERACTIVE; then
+        cl_reset
+        for k in "${!offer[@]}"; do
+            if [ "${#SEL_USER[@]}" -gt 1 ]; then
+                cl_add "$(app_field "${offer[$k]}" 2)" 1 "found in ${count[$k]} of ${#SEL_USER[@]} users"
+            else
+                cl_add "$(app_field "${offer[$k]}" 2)" 1 ""
+            fi
+        done
+        cl_run "Select the applications to clean" || bye "Cancelled."
+        for k in "${!offer[@]}"; do
+            [ "${CL_STATE[$k]}" = "1" ] && SEL_APP+=("${offer[$k]}")
+        done
+    else
+        SEL_APP=("${offer[@]}")
+    fi
 fi
 [ "${#SEL_APP[@]}" -eq 0 ] && bye "No application selected."
+
+# ---- how to treat the Thunderbird mail stores -----------------------------
+# Asked once in multi-user mode and applied to every selected user, unless
+# --tb-mail already said so on the command line.
+tb_selected=false
+for i in "${SEL_APP[@]}"; do
+    [ "$(app_field "$i" 1)" = "thunderbird" ] && tb_selected=true
+done
+
+if $tb_selected && $ALL_USERS && ! $TB_MODE_SET; then
+    cl_reset 1
+    cl_add "Delete the whole folders" "$([ "$TB_MODE" = full ]    && echo 1 || echo 0)" \
+        "message filters included"
+    cl_add "Delete except message filters" "$([ "$TB_MODE" = filters ] && echo 1 || echo 0)" \
+        "keeps msgFilterRules.dat"
+    cl_add "Do not delete them" "$([ "$TB_MODE" = none ]    && echo 1 || echo 0)" \
+        "Mail/ and ImapMail/ untouched"
+    cl_run "Thunderbird mail stores — applies to every selected user" || bye "Cancelled."
+    if   [ "${CL_STATE[0]}" = "1" ]; then TB_MODE="full"
+    elif [ "${CL_STATE[1]}" = "1" ]; then TB_MODE="filters"
+    elif [ "${CL_STATE[2]}" = "1" ]; then TB_MODE="none"
+    else bye "Nothing selected."
+    fi
+fi
 
 # ---- confirm --------------------------------------------------------------
 section "About to clean"
@@ -590,16 +667,26 @@ printf '    %-12s %s\n' "users:" "${SEL_USER[*]}"
 apps_line=""
 for i in "${SEL_APP[@]}"; do apps_line="$apps_line$(app_field "$i" 2), "; done
 printf '    %-12s %s\n' "apps:" "${apps_line%, }"
-$TB_MBOX && for i in "${SEL_APP[@]}"; do
-    if [ "$(app_field "$i" 1)" = "thunderbird" ]; then
-        printf '\n'
-        warn "Thunderbird local mail stores will be wiped as well."
-        detail "IMAP accounts resync from the server, but POP3 mail and"
-        detail "Local Folders are lost. Pass --no-tb-mail to keep them."
-    fi
-done
+if $tb_selected; then
+    case "$TB_MODE" in
+        full)
+            printf '    %-12s %s\n' "tb mail:" "delete everything, filters included"
+            printf '\n'
+            warn "Thunderbird mail stores will be emptied completely."
+            detail "IMAP accounts resync from the server, but POP3 mail, Local"
+            detail "Folders and the message filters are lost." ;;
+        filters)
+            printf '    %-12s %s\n' "tb mail:" "delete except message filters"
+            printf '\n'
+            warn "Thunderbird mail stores will be emptied."
+            detail "IMAP accounts resync from the server, but POP3 mail and"
+            detail "Local Folders are lost. msgFilterRules.dat is kept." ;;
+        none)
+            printf '    %-12s %s\n' "tb mail:" "left untouched" ;;
+    esac
+fi
 
-if ! $DRY_RUN; then
+if $INTERACTIVE && ! $DRY_RUN; then
     printf '\n'
     ask_yes_no "Proceed?" n || bye "Cancelled."
 fi
