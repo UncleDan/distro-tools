@@ -1,14 +1,15 @@
 # distro-tools
 
-Two standalone scripts that share the same interface: coloured output,
-checkbox lists driven by the arrow keys, and the same `YY.MM` version number.
-Neither depends on the other — copy just the one you need.
+Standalone scripts that share the same interface: coloured output, checkbox
+lists driven by the arrow keys, and the same `YY.MM` version number. None of
+them depends on the others — copy just the one you need.
 
 | Script | What it does |
 |---|---|
 | `repo-sync.sh` | copies APT repositories and their signing keys between machines |
 | `rename-distro.sh` | changes the name a Linux install reports about itself |
 | `clean-cache.sh` | clears caches and regenerable data, for one user or all of them |
+| `install-scripts.sh` | symlinks the others into `/usr/local/bin` so they run from anywhere |
 
 ---
 
@@ -324,3 +325,60 @@ default (`filters`) applies without asking.
   deletes and only reports the sizes.
 - Only deletions happen — no file is created in anyone's home, so ownership
   is never disturbed.
+
+---
+
+# install-scripts.sh
+
+Puts the other scripts on your `PATH` by symlinking them into
+`/usr/local/bin`, dropping the `.sh` extension:
+
+```
+/usr/local/bin/clean-cache  ->  <this folder>/clean-cache.sh
+```
+
+After that `clean-cache -c`, `repo-sync export` and `rename-distro show` work
+from any directory.
+
+## Usage
+
+```
+./install-scripts.sh              # ask what to do
+./install-scripts.sh install      # link them
+./install-scripts.sh remove       # remove the links
+./install-scripts.sh status       # show what is linked
+./install-scripts.sh install --dir ~/bin
+```
+
+`install` and `remove` re-run themselves with `sudo`; `status` does not need
+root. `--dir` puts the links somewhere else — `~/.local/bin` or `~/bin` if you
+would rather not touch a system directory.
+
+## Behaviour
+
+The list offers every `.sh` in the folder, itself included, pre-ticked for
+those not linked yet:
+
+```
+  ❯ [✓] clean-cache
+    [ ] repo-sync                already linked
+    [ ] rename-distro            name taken by another link
+```
+
+A name that is already taken is left unticked; tick it anyway and you are
+asked, one at a time, whether to replace it — showing where the existing link
+points, or warning that it is a regular file rather than a link.
+
+`remove` only ever deletes symlinks that point back into this folder, so an
+unrelated `/usr/local/bin/repo-sync` belonging to something else is left
+alone. The scripts themselves are never touched.
+
+## Notes
+
+- These are links, not copies: **the folder has to stay where it is**. Move it
+  and the links dangle — run `remove` first, or `install` again afterwards.
+- Each script resolves its own symlink before looking for its `data/` folder,
+  so `repo-sync` called from `/tmp` still finds `data/repo/` next to the real
+  script.
+- If the link directory is not on your `PATH`, the script says so instead of
+  leaving you wondering why the short name does not work.

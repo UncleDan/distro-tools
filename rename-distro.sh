@@ -19,7 +19,10 @@ set -uo pipefail
 
 VERSION="26.08"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks, so the script still finds its own folder when it is
+# called through a link in /usr/local/bin.
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 DATA_ROOT="$SCRIPT_DIR/data"
 BACKUP_DIR="$DATA_ROOT/rename"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
