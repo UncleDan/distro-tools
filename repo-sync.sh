@@ -97,18 +97,20 @@ ask_yes_no() {
 #    cl_run "<title>"                     draw it, returns 1 if cancelled
 #    CL_STATE[i]                          0/1 after cl_run
 # ===========================================================================
-CL_LABEL=(); CL_STATE=(); CL_HINT=()
+CL_LABEL=(); CL_STATE=(); CL_HINT=(); CL_EXCLUSIVE=0
 
-cl_reset() { CL_LABEL=(); CL_STATE=(); CL_HINT=(); }
+# cl_reset [exclusive]  -  pass 1 for a radio list: ticking one option
+#                          automatically unticks all the others.
+cl_reset() { CL_LABEL=(); CL_STATE=(); CL_HINT=(); CL_EXCLUSIVE="${1:-0}"; }
 cl_add()   { CL_LABEL+=("$1"); CL_STATE+=("$2"); CL_HINT+=("${3:-}"); }
 
 cl_draw() {
     local cur="$1" i mark line
     for i in "${!CL_LABEL[@]}"; do
         if [ "${CL_STATE[$i]}" = "1" ]; then
-            mark="${C_GRN}[✓]${C_RST}"
+            [ "$CL_EXCLUSIVE" = "1" ] && mark="${C_GRN}(•)${C_RST}" || mark="${C_GRN}[✓]${C_RST}"
         else
-            mark="${C_DIM}[ ]${C_RST}"
+            [ "$CL_EXCLUSIVE" = "1" ] && mark="${C_DIM}( )${C_RST}" || mark="${C_DIM}[ ]${C_RST}"
         fi
         line=$(printf '%-28s %s%s%s' "${CL_LABEL[$i]}" "$C_DIM" "${CL_HINT[$i]}" "$C_RST")
         printf '%s' "$C_CLR"
@@ -133,8 +135,13 @@ cl_run() {
         return 0
     fi
 
-    printf '  %sUp/Down%s move   %sSpace%s toggle   %sA%s all/none   %sEnter%s confirm   %sQ%s cancel\n\n' \
-        "$C_B" "$C_RST" "$C_B" "$C_RST" "$C_B" "$C_RST" "$C_B" "$C_RST" "$C_B" "$C_RST"
+    if [ "$CL_EXCLUSIVE" = "1" ]; then
+        printf '  %sUp/Down%s move   %sSpace%s pick   %sEnter%s confirm   %sQ%s cancel\n\n' \
+            "$C_B" "$C_RST" "$C_B" "$C_RST" "$C_B" "$C_RST" "$C_B" "$C_RST"
+    else
+        printf '  %sUp/Down%s move   %sSpace%s toggle   %sA%s all/none   %sEnter%s confirm   %sQ%s cancel\n\n' \
+            "$C_B" "$C_RST" "$C_B" "$C_RST" "$C_B" "$C_RST" "$C_B" "$C_RST" "$C_B" "$C_RST"
+    fi
 
     printf '\033[?25l'                       # hide cursor
     trap 'printf "\033[?25h"' EXIT INT TERM
@@ -154,8 +161,14 @@ cl_run() {
             'k') cur=$(( (cur - 1 + n) % n )) ;;
             'j') cur=$(( (cur + 1) % n )) ;;
             ' ')
-                [ "${CL_STATE[$cur]}" = "1" ] && CL_STATE[$cur]=0 || CL_STATE[$cur]=1 ;;
+                if [ "$CL_EXCLUSIVE" = "1" ]; then
+                    for i in "${!CL_STATE[@]}"; do CL_STATE[$i]=0; done
+                    CL_STATE[$cur]=1
+                else
+                    [ "${CL_STATE[$cur]}" = "1" ] && CL_STATE[$cur]=0 || CL_STATE[$cur]=1
+                fi ;;
             'a'|'A')
+                [ "$CL_EXCLUSIVE" = "1" ] && continue
                 local all=1
                 for i in "${!CL_STATE[@]}"; do [ "${CL_STATE[$i]}" = "0" ] && all=0; done
                 for i in "${!CL_STATE[@]}"; do CL_STATE[$i]=$(( all ? 0 : 1 )); done ;;
@@ -589,13 +602,11 @@ case "$MODE" in
     -h|--help|help)  usage ;;
     "")
         banner "repo-sync $VERSION"
-        cl_reset
+        cl_reset 1
         cl_add "Export  (this is the source machine)" 1 ""
         cl_add "Import  (this is the target machine)" 0 ""
         cl_run "What do you want to do?" || bye "Cancelled."
-        if [ "${CL_STATE[0]}" = "1" ] && [ "${CL_STATE[1]}" = "1" ]; then
-            die "Pick only one of the two modes."
-        elif [ "${CL_STATE[0]}" = "1" ]; then
+        if [ "${CL_STATE[0]}" = "1" ]; then
             run_export
         elif [ "${CL_STATE[1]}" = "1" ]; then
             run_import

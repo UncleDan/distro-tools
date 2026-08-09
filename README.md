@@ -25,6 +25,9 @@ everything is now a single file with a checkbox interface.
 ./repo-sync.sh            # asks which mode to run
 ```
 
+Run with no argument and the script first shows a single-choice menu —
+Export or Import, never both: picking one automatically clears the other.
+
 1. **Source machine** — run `./repo-sync.sh export`. The script scans
    `/etc/apt/sources.list` and `/etc/apt/sources.list.d/`, lists the
    repositories it actually finds, and saves the selected ones into `data/`.
