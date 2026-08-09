@@ -1,7 +1,20 @@
-# repo-sync
+# distro-tools
 
-One script to copy APT repository definitions and their GPG signing keys from
-one machine to another — typically from MX Linux to a fresh Debian install.
+Two standalone scripts that share the same interface: coloured output,
+checkbox lists driven by the arrow keys, and the same `YY.MM` version number.
+Neither depends on the other — copy just the one you need.
+
+| Script | What it does |
+|---|---|
+| `repo-sync.sh` | copies APT repositories and their signing keys between machines |
+| `rename-distro.sh` | changes the name a Linux install reports about itself |
+
+---
+
+# repo-sync.sh
+
+Copies APT repository definitions and their GPG signing keys from one machine
+to another — typically from MX Linux to a fresh Debian install.
 
 It replaces the old collection of `esporta-*.sh` / `registra-*.sh` scripts:
 everything is now a single file with a checkbox interface.
@@ -143,3 +156,62 @@ optional — leave them empty and that repository will simply be reported as
   Without them the script still works, only verification is unavailable.
 - Colours are disabled automatically when the output is not a terminal, or
   when `NO_COLOR` is set.
+
+---
+
+# rename-distro.sh
+
+Changes the name the system reports about itself, across `/etc/os-release`,
+`/etc/lsb-release`, `/etc/issue`, `/etc/issue.net` and `/etc/motd`.
+
+## Usage
+
+```
+./rename-distro.sh show                      # print the current values
+./rename-distro.sh apply "Name" [Ver] [ID]   # back up, then rewrite
+./rename-distro.sh restore                   # put a previous backup back
+./rename-distro.sh                           # asks what to do
+```
+
+`apply` and `restore` re-run themselves with `sudo`. `apply` with no name asks
+for name, version and ID one at a time; the ID defaults to a slug of the name
+(`"My Distro"` → `my-distro`).
+
+The old positional form still works: `./rename-distro.sh "My Distro" 1.0`.
+
+## What happens on apply
+
+1. A checkbox list of the five files, pre-ticked for the ones that exist.
+2. A preview of every key that will be written, and a confirmation.
+3. A backup into `prettyname/<timestamp>/`, keeping the original paths.
+4. The rewrite, followed by the resulting values.
+
+`os-release` and `lsb-release` are edited key by key: only `NAME`,
+`PRETTY_NAME`, `ID`, `VERSION`, `VERSION_ID` (and the `DISTRIB_*` equivalents)
+change, everything else in the file is left alone, and a key that is missing is
+appended rather than silently dropped. `VERSION` and `VERSION_ID` are only
+touched when you pass a version.
+
+`issue`, `issue.net` and `motd` have no key structure, so they are **replaced**
+— a custom banner in them is lost, which is what the backup is for.
+
+## Restore
+
+`./rename-distro.sh restore` lists the saved sessions newest first, shows which
+file goes back where, and asks before overwriting.
+
+```
+  ❯ (•) 20260809-102013            4 file(s)
+```
+
+## Notes
+
+- If `/etc/os-release` is a symlink (commonly into `/usr/lib/`), the script
+  follows it and edits — and backs up — the real file.
+- File ownership and permissions are preserved: the content is rewritten in
+  place rather than the file being replaced.
+- Some desktop environments and login managers cache the distribution name;
+  a reboot, or at least a new session, may be needed before it shows up
+  everywhere.
+- This only changes what the system *says*. Package sources, branding
+  artwork and installed distro packages are untouched.
