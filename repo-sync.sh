@@ -5,7 +5,7 @@
 #  Copies APT repository definitions and their GPG signing keys from one
 #  machine to another (typically MX Linux -> Debian).
 #
-#    ./repo-sync.sh export     run on the SOURCE machine, saves into ./data
+#    ./repo-sync.sh export     run on the SOURCE machine, saves into ./data/repo
 #    ./repo-sync.sh import     run on the TARGET machine (root), installs them
 #    ./repo-sync.sh            asks which mode to run
 #
@@ -18,7 +18,8 @@ set -uo pipefail
 VERSION="26.08"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DATA_DIR="$SCRIPT_DIR/data"
+DATA_ROOT="$SCRIPT_DIR/data"
+DATA_DIR="$DATA_ROOT/repo"
 FPR_CACHE=""
 
 # ---------------------------------------------------------------------------
@@ -347,7 +348,7 @@ run_export() {
             id="$(cat_field "$i" 1)"; name="$(cat_field "$i" 2)"
             if [ -d "$DATA_DIR/$id" ] && compgen -G "$DATA_DIR/$id/keys/*" >/dev/null 2>&1; then
                 printf '\n'
-                warn "$name is already present in data/$id"
+                warn "$name is already present in data/repo/$id"
                 if ! ask_yes_no "Overwrite it?" n; then
                     info "$name skipped."
                     n=$((n+1)); continue
@@ -364,8 +365,8 @@ run_export() {
     mkdir -p "$DATA_DIR"
     for i in "${todo[@]}"; do export_one "$i"; done
 
-    chown -R "$REAL_UID:$REAL_GID" "$DATA_DIR" 2>/dev/null || \
-        sudo chown -R "$REAL_UID:$REAL_GID" "$DATA_DIR"
+    chown -R "$REAL_UID:$REAL_GID" "$DATA_ROOT" 2>/dev/null || \
+        sudo chown -R "$REAL_UID:$REAL_GID" "$DATA_ROOT"
     find "$DATA_DIR" -type d -exec chmod 755 {} +
     find "$DATA_DIR" -type f -exec chmod 644 {} +
 
@@ -545,7 +546,7 @@ run_import() {
 
     banner "repo-sync $VERSION  -  IMPORT  (target machine)"
 
-    [ -d "$DATA_DIR" ] || die "Folder 'data' not found next to the script. Run the export first."
+    [ -d "$DATA_DIR" ] || die "Folder 'data/repo' not found next to the script. Run the export first."
 
     section "Reading exported data"
     local -a avail=()
@@ -700,7 +701,7 @@ run_import() {
 usage() {
     banner "repo-sync $VERSION"
     printf '  %sUsage:%s %s [export|import]\n\n' "$C_B" "$C_RST" "$(basename "$0")"
-    printf '    %sexport%s   run on the source machine — saves repositories into ./data\n' "$C_B" "$C_RST"
+    printf '    %sexport%s   run on the source machine — saves repositories into ./data/repo\n' "$C_B" "$C_RST"
     printf '    %simport%s   run on the target machine as root — installs them\n\n' "$C_B" "$C_RST"
     printf '  With no argument the mode is asked interactively.\n\n'
 }

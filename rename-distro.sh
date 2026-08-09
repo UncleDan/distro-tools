@@ -10,7 +10,7 @@
 #    ./rename-distro.sh restore                    put a backup back
 #    ./rename-distro.sh                            ask what to do
 #
-#  Backups go to ./prettyname/<timestamp>/, keeping the original paths.
+#  Backups go to ./data/rename/<timestamp>/, keeping the original paths.
 #  The file list is a checkbox list:
 #    Up/Down  move      Space  toggle      A  all/none      Enter  confirm
 # ===========================================================================
@@ -20,7 +20,8 @@ set -uo pipefail
 VERSION="26.08"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKUP_DIR="$SCRIPT_DIR/prettyname"
+DATA_ROOT="$SCRIPT_DIR/data"
+BACKUP_DIR="$DATA_ROOT/rename"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # ===========================================================================
@@ -371,7 +372,7 @@ run_apply() {
     local session; session="$(do_backup "${todo[@]}")"
     ok "Saved to $session"
     if [ -n "${SUDO_UID:-}" ]; then
-        chown -R "$SUDO_UID:${SUDO_GID:-$SUDO_UID}" "$BACKUP_DIR" 2>/dev/null || true
+        chown -R "$SUDO_UID:${SUDO_GID:-$SUDO_UID}" "$DATA_ROOT" 2>/dev/null || true
     fi
 
     # ---- write -----------------------------------------------------------

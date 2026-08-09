@@ -44,8 +44,8 @@ Export or Import, never both: picking one automatically clears the other.
 
 1. **Source machine** — run `./repo-sync.sh export`. The script scans
    `/etc/apt/sources.list` and `/etc/apt/sources.list.d/`, lists the
-   repositories it actually finds, and saves the selected ones into `data/`.
-2. **Copy the whole `repo-sync` folder** (script + `data/`) to the target
+   repositories it actually finds, and saves the selected ones into `data/repo/`.
+2. **Copy the whole folder** (script + `data/`) to the target
    machine — USB stick, `scp`, shared folder.
 3. **Target machine** — run `./repo-sync.sh import`. It re-creates the
    repository files and the keys, then runs `apt update`.
@@ -69,7 +69,7 @@ Export or Import, never both: picking one automatically clears the other.
 
 **What is ticked by default**
 
-- *Export*: every repository whose key is **not yet** in the `data/` folder.
+- *Export*: every repository whose key is **not yet** in `data/repo/`.
 - *Import*: every repository **not yet** present on this system.
 
 So a plain `Enter` does the sensible thing: only what is missing.
@@ -86,7 +86,7 @@ compared against the official reference — either the one pinned in the script
 
 Two sets of keys are checked:
 
-1. **Keys about to be installed**, taken from `data/`.
+1. **Keys about to be installed**, taken from `data/repo/`.
 2. **Keys already present on this system**, for every catalogued repository
    configured in `/etc/apt` that is *not* being reinstalled by this run. This
    turns the option into a small audit of what the machine already trusts.
@@ -119,19 +119,28 @@ This matters for repositories like Claude Desktop, whose key lives in
 
 ## Layout after an export
 
+Everything both scripts write lives under a single `data/` folder:
+
 ```
-repo-sync/
+distro-tools/
 ├── repo-sync.sh
+├── rename-distro.sh
+├── clean-cache.sh
 ├── README.md
 └── data/
-    ├── chrome/
-    │   ├── repo.list
-    │   ├── manifest
-    │   └── keys/google-chrome.gpg
-    └── claude/
-        ├── repo.list
-        ├── manifest
-        └── keys/claude-desktop-archive-keyring.asc
+    ├── repo/                       # repo-sync.sh
+    │   ├── chrome/
+    │   │   ├── repo.list
+    │   │   ├── manifest
+    │   │   └── keys/google-chrome.gpg
+    │   └── claude/
+    │       ├── repo.list
+    │       ├── manifest
+    │       └── keys/claude-desktop-archive-keyring.asc
+    └── rename/                     # rename-distro.sh
+        └── 20260809-104911/
+            ├── etc/{issue,issue.net,lsb-release}
+            └── usr/lib/os-release
 ```
 
 ## Adding a repository
@@ -164,6 +173,7 @@ optional — leave them empty and that repository will simply be reported as
 
 Changes the name the system reports about itself, across `/etc/os-release`,
 `/etc/lsb-release`, `/etc/issue`, `/etc/issue.net` and `/etc/motd`.
+Backups go to `data/rename/<timestamp>/`.
 
 ## Usage
 
@@ -184,7 +194,7 @@ The old positional form still works: `./rename-distro.sh "My Distro" 1.0`.
 
 1. A checkbox list of the five files, pre-ticked for the ones that exist.
 2. A preview of every key that will be written, and a confirmation.
-3. A backup into `prettyname/<timestamp>/`, keeping the original paths.
+3. A backup into `data/rename/<timestamp>/`, keeping the original paths.
 4. The rewrite, followed by the resulting values.
 
 `os-release` and `lsb-release` are edited key by key: only `NAME`,
